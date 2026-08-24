@@ -1,27 +1,48 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import api from '../services/api';
 
 const Header = () => {
   const navigate = useNavigate();
   const token = sessionStorage.getItem('token');
-  const role = sessionStorage.getItem('role');
-  let user = null;
-
-  try {
-    const rawUser = sessionStorage.getItem('user');
-    if (rawUser) {
-      user = JSON.parse(rawUser);
+  const [userData, setUserData] = useState(() => {
+    try {
+      const rawUser = sessionStorage.getItem('user');
+      return rawUser ? JSON.parse(rawUser) : null;
+    } catch (e) {
+      return null;
     }
-  } catch (e) {
-    console.error('Failed to parse user from sessionStorage:', e);
-  }
+  });
+
+  // Always refresh and verify the authoritative MongoDB user profile & role on mount/render
+  useEffect(() => {
+    if (token) {
+      api
+        .get('/auth/me')
+        .then((res) => {
+          const userPayload = res.data.user || res.data;
+          setUserData(userPayload);
+          // Sync sessionStorage with authoritative DB role
+          sessionStorage.setItem('role', userPayload.role);
+          sessionStorage.setItem('user', JSON.stringify(userPayload));
+        })
+        .catch((err) => {
+          console.error('Header profile sync error:', err);
+        });
+    } else {
+      setUserData(null);
+    }
+  }, [token]);
 
   const handleLogout = () => {
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('user');
     sessionStorage.removeItem('role');
+    setUserData(null);
     navigate('/login');
   };
+
+  const role = userData?.role || sessionStorage.getItem('role');
 
   return (
     <header className="bg-[#0f0e0d] border-b border-white/[0.08] text-[#f2f0ec] sticky top-0 z-40">
@@ -42,11 +63,11 @@ const Header = () => {
 
           {/* Right Navigation */}
           <div className="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto no-scrollbar py-1">
-            {token && user ? (
+            {token && userData ? (
               <>
                 <div className="flex items-center space-x-1.5 bg-[#171614] px-2 sm:px-3 py-1 rounded border border-white/[0.08] max-w-[140px] min-[400px]:max-w-[200px] sm:max-w-none">
                   <span className="text-[11px] sm:text-xs font-normal text-[#f2f0ec] truncate">
-                    {user.fullName || user.email}
+                    {userData.fullName || userData.email}
                   </span>
                   <span
                     className={`text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded-full font-medium shrink-0 ${
@@ -77,7 +98,7 @@ const Header = () => {
 
                 <button
                   onClick={handleLogout}
-                  className="text-[11px] sm:text-xs bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] font-normal px-2.5 sm:px-3 py-1.5 rounded shrink-0"
+                  className="text-[11px] sm:text-xs bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] font-normal px-2.5 sm:px-3 py-1.5 rounded shrink-0 cursor-pointer"
                 >
                   Log out
                 </button>

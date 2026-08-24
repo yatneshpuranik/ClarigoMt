@@ -122,11 +122,15 @@ export const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('-password');
     if (user) {
-      return res.json({
+      const userObj = {
         id: user._id,
         fullName: user.fullName,
         email: user.email,
         role: user.role,
+      };
+      return res.json({
+        user: userObj,
+        ...userObj,
       });
     } else {
       return res.status(404).json({ message: 'User not found' });
