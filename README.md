@@ -59,7 +59,7 @@ The key is intentionally not exposed in this README for security. Standard `User
 
 ### Standard User Account
 - **Email:** `user@example.com`
-- **Password:** `userpassword123` (or `123456`)
+- **Password:**  `123456`
 
 ### Administrator Account
 - **Email:** `admin@example.com`
