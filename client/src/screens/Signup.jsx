@@ -1,9 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { setCredentials } from '../store/authSlice';
 import api from '../services/api';
 
 const Signup = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const { isAuthenticated, role: userRole } = useSelector((state) => state.auth);
+
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,23 +19,21 @@ const Signup = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('token');
-    const role = sessionStorage.getItem('role');
-    if (token) {
-      if (role === 'Admin') {
+    if (isAuthenticated) {
+      if (userRole === 'Admin') {
         navigate('/admin', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }
     }
-  }, [navigate]);
+  }, [isAuthenticated, userRole, navigate]);
 
   const validate = () => {
     const newErrors = {};
     if (!fullName.trim()) newErrors.fullName = 'Full name is required';
     if (!email.trim()) {
       newErrors.email = 'Email address is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       newErrors.email = 'Please enter a valid email address';
     }
 
@@ -42,6 +45,10 @@ const Signup = () => {
 
     if (!['Admin', 'User'].includes(role)) {
       newErrors.role = 'Role must be Admin or User';
+    }
+
+    if (role === 'Admin' && !adminKey.trim()) {
+      newErrors.adminKey = 'Admin Signup Key is required for Admin role';
     }
 
     setErrors(newErrors);
@@ -60,13 +67,11 @@ const Signup = () => {
         email: email.trim(),
         password,
         role,
+        adminKey: role === 'Admin' ? adminKey.trim() : undefined,
       });
 
       const { token, user } = response.data;
-
-      sessionStorage.setItem('token', token);
-      sessionStorage.setItem('user', JSON.stringify(user));
-      sessionStorage.setItem('role', user.role);
+      dispatch(setCredentials({ token, user }));
 
       if (user.role === 'Admin') {
         navigate('/admin');
@@ -166,15 +171,16 @@ const Signup = () => {
           {role === 'Admin' && (
             <div className="animate-fade-in">
               <label className="block text-xs font-normal text-[#8a8782] mb-1.5">
-                Admin key (Optional)
+                Admin Signup Key (Required for Admin)
               </label>
               <input
-                type="text"
+                type="password"
                 value={adminKey}
                 onChange={(e) => setAdminKey(e.target.value)}
-                placeholder="e.g. ADMIN_SECRET_KEY"
+                placeholder="Enter Admin Signup Key"
                 className="w-full bg-[#1a1918] border border-white/[0.1] text-[#f2f0ec] rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#f2994a] focus:ring-1 focus:ring-[#f2994a]/40 placeholder:text-[#5a5854]"
               />
+              {errors.adminKey && <p className="text-xs text-[#e0645a] mt-1">{errors.adminKey}</p>}
             </div>
           )}
 
@@ -201,3 +207,4 @@ const Signup = () => {
 };
 
 export default Signup;
+

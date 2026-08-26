@@ -1,48 +1,16 @@
-import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import { useSelector, useDispatch } from 'react-redux';
+import { logout } from '../store/authSlice';
 
 const Header = () => {
   const navigate = useNavigate();
-  const token = sessionStorage.getItem('token');
-  const [userData, setUserData] = useState(() => {
-    try {
-      const rawUser = sessionStorage.getItem('user');
-      return rawUser ? JSON.parse(rawUser) : null;
-    } catch (e) {
-      return null;
-    }
-  });
-
-  // Always refresh and verify the authoritative MongoDB user profile & role on mount/render
-  useEffect(() => {
-    if (token) {
-      api
-        .get('/auth/me')
-        .then((res) => {
-          const userPayload = res.data.user || res.data;
-          setUserData(userPayload);
-          // Sync sessionStorage with authoritative DB role
-          sessionStorage.setItem('role', userPayload.role);
-          sessionStorage.setItem('user', JSON.stringify(userPayload));
-        })
-        .catch((err) => {
-          console.error('Header profile sync error:', err);
-        });
-    } else {
-      setUserData(null);
-    }
-  }, [token]);
+  const dispatch = useDispatch();
+  const { user: userData, role, isAuthenticated } = useSelector((state) => state.auth);
 
   const handleLogout = () => {
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('user');
-    sessionStorage.removeItem('role');
-    setUserData(null);
+    dispatch(logout());
     navigate('/login');
   };
-
-  const role = userData?.role || sessionStorage.getItem('role');
 
   return (
     <header className="bg-[#0f0e0d] border-b border-white/[0.08] text-[#f2f0ec] sticky top-0 z-40">
@@ -50,7 +18,7 @@ const Header = () => {
         <div className="flex items-center justify-between h-14 gap-2">
           {/* Logo / Brand */}
           <Link
-            to={token ? (role === 'Admin' ? '/admin' : '/dashboard') : '/login'}
+            to={isAuthenticated ? (role === 'Admin' ? '/admin' : '/dashboard') : '/login'}
             className="flex items-center space-x-2 shrink-0"
           >
             <div className="w-7 h-7 rounded bg-[#f2994a] flex items-center justify-center font-medium text-[#0d0d0c] text-xs">
@@ -63,7 +31,7 @@ const Header = () => {
 
           {/* Right Navigation */}
           <div className="flex items-center space-x-1.5 sm:space-x-3 overflow-x-auto no-scrollbar py-1">
-            {token && userData ? (
+            {isAuthenticated && userData ? (
               <>
                 <div className="flex items-center space-x-1.5 bg-[#171614] px-2 sm:px-3 py-1 rounded border border-white/[0.08] max-w-[140px] min-[400px]:max-w-[200px] sm:max-w-none">
                   <span className="text-[11px] sm:text-xs font-normal text-[#f2f0ec] truncate">

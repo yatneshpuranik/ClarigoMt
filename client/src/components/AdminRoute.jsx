@@ -1,39 +1,8 @@
-import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import api from '../services/api';
+import { useSelector } from 'react-redux';
 
 const AdminRoute = ({ children }) => {
-  const token = sessionStorage.getItem('token');
-  const [verifiedRole, setVerifiedRole] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
-    // Always verify active session and actual role directly against MongoDB backend (/api/auth/me)
-    api
-      .get('/auth/me')
-      .then((res) => {
-        setVerifiedRole(res.data.role);
-        // Correct any tampered sessionStorage values with authoritative DB data
-        sessionStorage.setItem('role', res.data.role);
-        sessionStorage.setItem('user', JSON.stringify(res.data));
-      })
-      .catch((err) => {
-        console.error('Session verification error:', err);
-        setVerifiedRole(null);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [token]);
-
-  if (!token) {
-    return <Navigate to="/login" replace />;
-  }
+  const { isAuthenticated, role, loading } = useSelector((state) => state.auth);
 
   if (loading) {
     return (
@@ -43,7 +12,11 @@ const AdminRoute = ({ children }) => {
     );
   }
 
-  if (verifiedRole !== 'Admin') {
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (role !== 'Admin') {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -51,3 +24,4 @@ const AdminRoute = ({ children }) => {
 };
 
 export default AdminRoute;
+

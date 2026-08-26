@@ -1,40 +1,14 @@
-import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import api from '../services/api';
+import { useSelector, useDispatch } from 'react-redux';
+import { logout } from '../store/authSlice';
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const rawUser = sessionStorage.getItem('user');
-    if (rawUser) {
-      try {
-        setUser(JSON.parse(rawUser));
-      } catch (e) {
-        console.error('Error parsing stored user:', e);
-      }
-    }
-
-    api
-      .get('/auth/me')
-      .then((res) => {
-        setUser(res.data);
-        sessionStorage.setItem('user', JSON.stringify(res.data));
-      })
-      .catch((err) => {
-        console.error('Error fetching latest user profile:', err);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, []);
+  const dispatch = useDispatch();
+  const { user, loading } = useSelector((state) => state.auth);
 
   const handleLogout = () => {
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('user');
-    sessionStorage.removeItem('role');
+    dispatch(logout());
     navigate('/login');
   };
 

@@ -1,9 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { setCredentials } from '../store/authSlice';
 import api from '../services/api';
 
 const Login = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const { isAuthenticated, role: userRole } = useSelector((state) => state.auth);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState({});
@@ -11,22 +16,20 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const token = sessionStorage.getItem('token');
-    const role = sessionStorage.getItem('role');
-    if (token) {
-      if (role === 'Admin') {
+    if (isAuthenticated) {
+      if (userRole === 'Admin') {
         navigate('/admin', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }
     }
-  }, [navigate]);
+  }, [isAuthenticated, userRole, navigate]);
 
   const validate = () => {
     const newErrors = {};
     if (!email.trim()) {
       newErrors.email = 'Email address is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       newErrors.email = 'Please enter a valid email address';
     }
 
@@ -53,10 +56,7 @@ const Login = () => {
       });
 
       const { token, user } = response.data;
-
-      sessionStorage.setItem('token', token);
-      sessionStorage.setItem('user', JSON.stringify(user));
-      sessionStorage.setItem('role', user.role);
+      dispatch(setCredentials({ token, user }));
 
       if (user.role === 'Admin') {
         navigate('/admin');
@@ -146,3 +146,4 @@ const Login = () => {
 };
 
 export default Login;
+

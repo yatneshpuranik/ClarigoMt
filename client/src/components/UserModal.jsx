@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const UserModal = ({ isOpen, onClose, onSubmit, initialData = null, isSubmitting = false, apiError = '' }) => {
   const [fullName, setFullName] = useState('');
@@ -8,18 +8,22 @@ const UserModal = ({ isOpen, onClose, onSubmit, initialData = null, isSubmitting
   const [errors, setErrors] = useState({});
 
   useEffect(() => {
-    if (initialData) {
-      setFullName(initialData.fullName || '');
-      setEmail(initialData.email || '');
-      setPassword('');
-      setRole(initialData.role || 'User');
-    } else {
-      setFullName('');
-      setEmail('');
-      setPassword('');
-      setRole('User');
-    }
-    setErrors({});
+    if (!isOpen) return;
+    const timer = setTimeout(() => {
+      if (initialData) {
+        setFullName(initialData.fullName || '');
+        setEmail(initialData.email || '');
+        setPassword('');
+        setRole(initialData.role || 'User');
+      } else {
+        setFullName('');
+        setEmail('');
+        setPassword('');
+        setRole('User');
+      }
+      setErrors({});
+    }, 0);
+    return () => clearTimeout(timer);
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;

@@ -3,7 +3,8 @@ import User from '../models/User.js';
 
 // Helper to generate JWT Token
 const generateToken = (id, role) => {
-  return jwt.sign({ id, role }, process.env.JWT_SECRET || 'secret', {
+  const secret = process.env.JWT_SECRET || 'supersecret_clarigo_jwt_key_2026';
+  return jwt.sign({ id, role }, secret, {
     expiresIn: '30d',
   });
 };
@@ -19,14 +20,21 @@ const isValidEmail = (email) => {
 // @access  Public
 export const signup = async (req, res) => {
   try {
-    const { fullName, email, password, role } = req.body;
+    const { fullName, email, password, role, adminKey } = req.body;
 
     // Field validations
-    if (!fullName || !email || !password || !role) {
+    if (
+      !fullName ||
+      !fullName.trim() ||
+      !email ||
+      !email.trim() ||
+      !password ||
+      !role
+    ) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if (!isValidEmail(email)) {
+    if (!isValidEmail(email.trim())) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
 
@@ -38,8 +46,16 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: 'Role must be either Admin or User' });
     }
 
+    // Verify Admin Key for Admin signup
+    if (role === 'Admin') {
+      const expectedKey = process.env.ADMIN_SIGNUP_KEY || 'admin123';
+      if (!adminKey || adminKey.trim() !== expectedKey) {
+        return res.status(403).json({ message: 'Invalid or missing Admin Signup Key' });
+      }
+    }
+
     // Check duplicate email
-    const userExists = await User.findOne({ email: email.toLowerCase() });
+    const userExists = await User.findOne({ email: email.toLowerCase().trim() });
     if (userExists) {
       return res.status(409).json({ message: 'User with this email already exists' });
     }

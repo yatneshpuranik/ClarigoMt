@@ -1,5 +1,7 @@
-import React from 'react';
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchCurrentUser } from './store/authSlice';
 import Header from './components/Header';
 import ProtectedRoute from './components/ProtectedRoute';
 import AdminRoute from './components/AdminRoute';
@@ -10,10 +12,9 @@ import AdminDashboard from './screens/AdminDashboard';
 
 // Helper component for root '/' redirect
 const RootRedirect = () => {
-  const token = sessionStorage.getItem('token');
-  const role = sessionStorage.getItem('role');
+  const { isAuthenticated, role } = useSelector((state) => state.auth);
 
-  if (token) {
+  if (isAuthenticated) {
     if (role === 'Admin') {
       return <Navigate to="/admin" replace />;
     }
@@ -23,6 +24,15 @@ const RootRedirect = () => {
 };
 
 function App() {
+  const dispatch = useDispatch();
+  const token = useSelector((state) => state.auth.token);
+
+  useEffect(() => {
+    if (token) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, token]);
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
@@ -64,3 +74,4 @@ function App() {
 }
 
 export default App;
+

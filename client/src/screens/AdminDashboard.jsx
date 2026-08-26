@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../services/api';
 import UserModal from '../components/UserModal';
 
@@ -18,26 +18,32 @@ const AdminDashboard = () => {
   // Delete Confirm State
   const [userToDelete, setUserToDelete] = useState(null);
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const response = await api.get('/users');
-      setUsers(response.data);
-    } catch (err) {
-      console.error('Error fetching users:', err);
-      if (err.response && err.response.data && err.response.data.message) {
-        setError(err.response.data.message);
-      } else {
-        setError('Failed to fetch user accounts');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    let isMounted = true;
+    const fetchUsers = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const response = await api.get('/users');
+        if (isMounted) setUsers(response.data);
+      } catch (err) {
+        if (isMounted) {
+          console.error('Error fetching users:', err);
+          if (err.response && err.response.data && err.response.data.message) {
+            setError(err.response.data.message);
+          } else {
+            setError('Failed to fetch user accounts');
+          }
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
     fetchUsers();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleOpenAddModal = () => {

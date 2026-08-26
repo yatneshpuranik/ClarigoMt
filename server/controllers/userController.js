@@ -1,9 +1,13 @@
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 
 const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
+
+// Helper to check valid ObjectId
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 // @desc    Get all users (Admin only)
 // @route   GET /api/users
@@ -25,11 +29,11 @@ export const createUser = async (req, res) => {
   try {
     const { fullName, email, password, role } = req.body;
 
-    if (!fullName || !email || !password || !role) {
+    if (!fullName || !fullName.trim() || !email || !email.trim() || !password || !role) {
       return res.status(400).json({ message: 'All fields (fullName, email, password, role) are required' });
     }
 
-    if (!isValidEmail(email)) {
+    if (!isValidEmail(email.trim())) {
       return res.status(400).json({ message: 'Invalid email address' });
     }
 
@@ -41,7 +45,7 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ message: 'Role must be either Admin or User' });
     }
 
-    const userExists = await User.findOne({ email: email.toLowerCase() });
+    const userExists = await User.findOne({ email: email.toLowerCase().trim() });
     if (userExists) {
       return res.status(409).json({ message: 'User with this email already exists' });
     }
@@ -74,22 +78,37 @@ export const updateUser = async (req, res) => {
     const { fullName, email, password, role } = req.body;
     const userId = req.params.id;
 
+    if (!isValidObjectId(userId)) {
+      return res.status(400).json({ message: 'Invalid User ID format' });
+    }
+
+    // Prevent Admin from demoting their own logged-in account
+    if (req.user && req.user._id.toString() === userId && role && role !== 'Admin') {
+      return res.status(400).json({ message: 'You cannot demote your own admin account while logged in' });
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (fullName) user.fullName = fullName.trim();
+    if (fullName) {
+      if (!fullName.trim()) {
+        return res.status(400).json({ message: 'Full name cannot be empty' });
+      }
+      user.fullName = fullName.trim();
+    }
 
     if (email) {
-      if (!isValidEmail(email)) {
+      const cleanEmail = email.toLowerCase().trim();
+      if (!isValidEmail(cleanEmail)) {
         return res.status(400).json({ message: 'Invalid email address' });
       }
-      const existingUser = await User.findOne({ email: email.toLowerCase(), _id: { $ne: userId } });
+      const existingUser = await User.findOne({ email: cleanEmail, _id: { $ne: userId } });
       if (existingUser) {
         return res.status(409).json({ message: 'Email is already in use by another user' });
       }
-      user.email = email.toLowerCase().trim();
+      user.email = cleanEmail;
     }
 
     if (role) {
@@ -116,6 +135,9 @@ export const updateUser = async (req, res) => {
       updatedAt: updatedUser.updatedAt,
     });
   } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid User ID format' });
+    }
     console.error('Error updating user:', error);
     return res.status(500).json({ message: 'Server error updating user', error: error.message });
   }
@@ -127,6 +149,10 @@ export const updateUser = async (req, res) => {
 export const deleteUser = async (req, res) => {
   try {
     const userId = req.params.id;
+
+    if (!isValidObjectId(userId)) {
+      return res.status(400).json({ message: 'Invalid User ID format' });
+    }
 
     // Prevent active Admin from deleting themselves
     if (req.user && req.user._id.toString() === userId) {
@@ -141,7 +167,11 @@ export const deleteUser = async (req, res) => {
     await User.findByIdAndDelete(userId);
     return res.json({ message: 'User deleted successfully', id: userId });
   } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid User ID format' });
+    }
     console.error('Error deleting user:', error);
     return res.status(500).json({ message: 'Server error deleting user' });
   }
 };
+
