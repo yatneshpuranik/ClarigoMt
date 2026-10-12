@@ -8,6 +8,7 @@ const AdminDashboard = () => {
   const dispatch = useDispatch();
   const { user: currentUser } = useSelector((state) => state.auth);
   const currentAdminId = currentUser?.id || currentUser?._id;
+  const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.role === 'SuperAdmin';
 
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -137,6 +138,12 @@ const AdminDashboard = () => {
       setError('You cannot delete your own logged-in administrator account.');
       return;
     }
+
+    if (!isSuperAdmin && user.role !== 'User') {
+      setError('Admins cannot delete Admin or Super Admin accounts.');
+      return;
+    }
+
     setUserToDelete(user);
   };
 
@@ -147,7 +154,7 @@ const AdminDashboard = () => {
 
     const targetId = userToDelete._id || userToDelete.id;
     const targetName = userToDelete.fullName || userToDelete.email;
-    const isTargetAdmin = userToDelete.role === 'Admin';
+    const isTargetAdmin = userToDelete.role === 'Admin' || userToDelete.role === 'Super Admin';
 
     try {
       await api.delete(`/users/${targetId}`);
@@ -251,16 +258,18 @@ const AdminDashboard = () => {
             >
               All ({users.length})
             </button>
-            <button
-              onClick={() => setRoleFilter('Admin')}
-              className={`px-2.5 py-1 rounded border text-xs font-normal transition-colors cursor-pointer ${
-                roleFilter === 'Admin'
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-medium'
-                  : 'bg-[#1a1918] text-[#8a8782] border-white/[0.08] hover:text-[#f2f0ec]'
-              }`}
-            >
-              Admins ({users.filter((u) => u.role === 'Admin').length})
-            </button>
+            {isSuperAdmin && (
+              <button
+                onClick={() => setRoleFilter('Admin')}
+                className={`px-2.5 py-1 rounded border text-xs font-normal transition-colors cursor-pointer ${
+                  roleFilter === 'Admin'
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-medium'
+                    : 'bg-[#1a1918] text-[#8a8782] border-white/[0.08] hover:text-[#f2f0ec]'
+                }`}
+              >
+                Admins ({users.filter((u) => u.role === 'Admin' || u.role === 'Super Admin').length})
+              </button>
+            )}
             <button
               onClick={() => setRoleFilter('User')}
               className={`px-2.5 py-1 rounded border text-xs font-normal transition-colors cursor-pointer ${
@@ -301,7 +310,7 @@ const AdminDashboard = () => {
                         (currentAdminId && String(u._id || u.id) === String(currentAdminId)) ||
                         (currentUser?.email && u.email?.toLowerCase() === currentUser.email?.toLowerCase())
                       );
-                      const isOtherAdmin = u.role === 'Admin' && !isCurrentAdmin;
+                      const canDelete = isSuperAdmin ? !isCurrentAdmin : u.role === 'User';
 
                       return (
                         <tr key={u._id || u.id} className="hover:bg-white/[0.03] transition-colors">
@@ -324,7 +333,7 @@ const AdminDashboard = () => {
                           <td className="px-4 py-3">
                             <span
                               className={`px-2 py-0.5 rounded-full text-[11px] font-medium inline-block ${
-                                u.role === 'Admin'
+                                u.role === 'Admin' || u.role === 'Super Admin'
                                   ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                                   : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                               }`}
@@ -341,16 +350,16 @@ const AdminDashboard = () => {
                             </button>
                             <button
                               onClick={() => handleDeleteClick(u)}
-                              disabled={isCurrentAdmin}
+                              disabled={!canDelete}
                               title={
                                 isCurrentAdmin
-                                  ? 'You cannot delete your own logged-in admin account'
-                                  : isOtherAdmin
-                                  ? 'Delete administrator'
+                                  ? 'You cannot delete your own logged-in account'
+                                  : !canDelete
+                                  ? 'Only Super Admins can delete Admin accounts'
                                   : 'Delete user'
                               }
                               className={`px-2.5 py-1 rounded font-normal text-[11px] ${
-                                isCurrentAdmin
+                                !canDelete
                                   ? 'bg-white/[0.02] text-white/20 border border-white/[0.04] cursor-not-allowed'
                                   : 'bg-[#e0645a]/10 hover:bg-[#e0645a]/20 text-[#e0645a] border border-[#e0645a]/30 cursor-pointer'
                               }`}
@@ -371,7 +380,7 @@ const AdminDashboard = () => {
                     (currentAdminId && String(u._id || u.id) === String(currentAdminId)) ||
                     (currentUser?.email && u.email?.toLowerCase() === currentUser.email?.toLowerCase())
                   );
-                  const isOtherAdmin = u.role === 'Admin' && !isCurrentAdmin;
+                  const canDelete = isSuperAdmin ? !isCurrentAdmin : u.role === 'User';
 
                   return (
                     <div key={u._id || u.id} className="p-4 space-y-3">
@@ -395,7 +404,7 @@ const AdminDashboard = () => {
 
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
-                            u.role === 'Admin'
+                            u.role === 'Admin' || u.role === 'Super Admin'
                               ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                               : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
                           }`}
@@ -413,16 +422,16 @@ const AdminDashboard = () => {
                         </button>
                         <button
                           onClick={() => handleDeleteClick(u)}
-                          disabled={isCurrentAdmin}
+                          disabled={!canDelete}
                           title={
                             isCurrentAdmin
-                              ? 'You cannot delete your own logged-in admin account'
-                              : isOtherAdmin
-                              ? 'Delete administrator'
+                              ? 'You cannot delete your own logged-in account'
+                              : !canDelete
+                              ? 'Only Super Admins can delete Admin accounts'
                               : 'Delete user'
                           }
                           className={`flex-1 py-2 rounded font-normal text-xs text-center min-h-[38px] ${
-                            isCurrentAdmin
+                            !canDelete
                               ? 'bg-white/[0.02] text-white/20 border border-white/[0.04] cursor-not-allowed'
                               : 'bg-[#e0645a]/10 hover:bg-[#e0645a]/20 text-[#e0645a] border border-[#e0645a]/30 cursor-pointer'
                           }`}
@@ -446,6 +455,7 @@ const AdminDashboard = () => {
         initialData={selectedUser}
         isSubmitting={isSubmitting}
         apiError={modalError}
+        isSuperAdmin={isSuperAdmin}
         isSelf={Boolean(
           selectedUser &&
           ((currentAdminId && String(selectedUser._id || selectedUser.id) === String(currentAdminId)) ||
@@ -457,10 +467,12 @@ const AdminDashboard = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0d0d0c]/80">
           <div className="bg-[#171614] border border-white/[0.08] rounded-xl p-4 sm:p-5 max-w-sm w-full space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-base font-medium text-[#f2f0ec]">
-              {userToDelete.role === 'Admin' ? 'Confirm delete administrator' : 'Confirm delete user'}
+              {userToDelete.role === 'Admin' || userToDelete.role === 'Super Admin'
+                ? 'Confirm delete administrator'
+                : 'Confirm delete user'}
             </h3>
             <p className="text-[#8a8782] text-xs break-words-anywhere">
-              Are you sure you want to delete {userToDelete.role === 'Admin' ? 'administrator' : 'user'}{' '}
+              Are you sure you want to delete {userToDelete.role === 'Admin' || userToDelete.role === 'Super Admin' ? 'administrator' : 'user'}{' '}
               <strong className="text-[#f2f0ec] font-medium">{userToDelete.fullName}</strong> ({userToDelete.email})? This action cannot be undone.
             </p>
             <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2 border-t border-white/[0.08]">
@@ -474,7 +486,7 @@ const AdminDashboard = () => {
                 onClick={confirmDelete}
                 className="w-full sm:w-auto px-3.5 py-2 text-xs font-medium text-white bg-[#e0645a] hover:bg-[#d55349] rounded min-h-[38px]"
               >
-                Delete {userToDelete.role === 'Admin' ? 'administrator' : 'user'}
+                Delete
               </button>
             </div>
           </div>

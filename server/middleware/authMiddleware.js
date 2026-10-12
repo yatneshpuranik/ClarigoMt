@@ -30,7 +30,7 @@ export const protect = async (req, res, next) => {
 };
 
 export const adminOnly = (req, res, next) => {
-  if (req.user && req.user.role === 'Admin') {
+  if (req.user && ['Admin', 'Super Admin', 'SuperAdmin'].includes(req.user.role)) {
     next();
   } else {
     return res.status(403).json({ message: 'Access denied: Administrator role required' });

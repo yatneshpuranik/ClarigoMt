@@ -10,13 +10,21 @@ const isValidObjectId = (id) => {
   return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id) && mongoose.Types.ObjectId.isValid(id);
 };
 
+const isSuperAdminRole = (role) => role === 'Super Admin' || role === 'SuperAdmin';
+const isAdminRole = (role) => role === 'Admin' || isSuperAdminRole(role);
+
 export const getUsers = async (req, res) => {
   try {
-    const { role } = req.query || {};
+    const caller = req.user;
+    const isCallerSuperAdmin = isSuperAdminRole(caller?.role);
+
     const query = {};
-    if (role && ['Admin', 'User'].includes(role)) {
-      query.role = role;
+    if (!isCallerSuperAdmin) {
+      query.role = 'User';
+    } else if (req.query.role && ['Admin', 'User', 'Super Admin', 'SuperAdmin'].includes(req.query.role)) {
+      query.role = req.query.role;
     }
+
     const users = await User.find(query).select('-password').sort({ createdAt: -1 });
     return res.json(users);
   } catch (error) {
@@ -36,6 +44,12 @@ export const getUserById = async (req, res) => {
     const user = await User.findById(userId).select('-password');
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    const caller = req.user;
+    const isCallerSuperAdmin = isSuperAdminRole(caller?.role);
+    if (!isCallerSuperAdmin && user.role !== 'User') {
+      return res.status(403).json({ message: 'Forbidden: Admins cannot access Admin or Super Admin details' });
     }
 
     return res.json(user);
@@ -78,8 +92,15 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    if (!['Admin', 'User'].includes(role.trim())) {
-      return res.status(400).json({ message: 'Role must be either Admin or User' });
+    const cleanRole = role.trim();
+    if (!['Admin', 'User', 'Super Admin', 'SuperAdmin'].includes(cleanRole)) {
+      return res.status(400).json({ message: 'Role must be Admin, Super Admin, or User' });
+    }
+
+    const caller = req.user;
+    const isCallerSuperAdmin = isSuperAdminRole(caller?.role);
+    if (!isCallerSuperAdmin && cleanRole !== 'User') {
+      return res.status(403).json({ message: 'Forbidden: Admins cannot create Admin or Super Admin accounts' });
     }
 
     const userExists = await User.findOne({ email: cleanEmail });
@@ -91,7 +112,7 @@ export const createUser = async (req, res) => {
       fullName: fullName.trim(),
       email: cleanEmail,
       password,
-      role: role.trim(),
+      role: cleanRole,
     });
 
     return res.status(201).json({
@@ -136,19 +157,32 @@ export const updateUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    const caller = req.user;
+    const isCallerSuperAdmin = isSuperAdminRole(caller?.role);
+
+    if (!isCallerSuperAdmin && user.role !== 'User') {
+      return res.status(403).json({ message: 'Forbidden: Admins cannot modify Admin or Super Admin accounts' });
+    }
+
     if (
-      req.user &&
-      (req.user._id.toString() === userId || req.user.email?.toLowerCase() === user.email?.toLowerCase()) &&
+      caller &&
+      (caller._id.toString() === userId || caller.email?.toLowerCase() === user.email?.toLowerCase()) &&
       hasRole &&
-      role !== 'Admin'
+      !isAdminRole(role)
     ) {
       return res.status(400).json({
         message: 'You cannot demote your own admin account while logged in',
       });
     }
 
+    if (!isCallerSuperAdmin && hasRole && role !== 'User') {
+      return res.status(403).json({
+        message: 'Forbidden: Admins cannot promote users to Admin or Super Admin',
+      });
+    }
+
     if (user.role === 'Admin' && hasRole && role !== 'Admin') {
-      const adminCount = await User.countDocuments({ role: 'Admin' });
+      const adminCount = await User.countDocuments({ role: { $in: ['Admin', 'Super Admin', 'SuperAdmin'] } });
       if (adminCount <= 1) {
         return res.status(400).json({
           message: 'Cannot demote the last remaining administrator in the system',
@@ -179,10 +213,11 @@ export const updateUser = async (req, res) => {
     }
 
     if (hasRole) {
-      if (typeof role !== 'string' || !['Admin', 'User'].includes(role.trim())) {
-        return res.status(400).json({ message: 'Role must be either Admin or User' });
+      const cleanRole = role.trim();
+      if (!['Admin', 'User', 'Super Admin', 'SuperAdmin'].includes(cleanRole)) {
+        return res.status(400).json({ message: 'Role must be Admin, Super Admin, or User' });
       }
-      user.role = role.trim();
+      user.role = cleanRole;
     }
 
     if (hasPassword) {
@@ -223,17 +258,33 @@ export const deleteUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    const caller = req.user;
+    const isCallerSuperAdmin = isSuperAdminRole(caller?.role);
+
     if (
-      req.user &&
-      (req.user._id.toString() === userId || req.user.email?.toLowerCase() === user.email?.toLowerCase())
+      caller &&
+      (caller._id.toString() === userId || caller.email?.toLowerCase() === user.email?.toLowerCase())
     ) {
       return res.status(400).json({
         message: 'You cannot delete your own admin account while logged in',
       });
     }
 
-    if (user.role === 'Admin') {
-      const adminCount = await User.countDocuments({ role: 'Admin' });
+    if (!isCallerSuperAdmin && user.role !== 'User') {
+      return res.status(403).json({
+        message: 'Forbidden: Admins cannot delete Admin or Super Admin accounts',
+      });
+    }
+
+    if (isSuperAdminRole(user.role)) {
+      const superAdminCount = await User.countDocuments({ role: { $in: ['Super Admin', 'SuperAdmin'] } });
+      if (superAdminCount <= 1) {
+        return res.status(400).json({
+          message: 'Cannot delete the last remaining Super Admin in the system',
+        });
+      }
+    } else if (user.role === 'Admin') {
+      const adminCount = await User.countDocuments({ role: { $in: ['Admin', 'Super Admin', 'SuperAdmin'] } });
       if (adminCount <= 1) {
         return res.status(400).json({
           message: 'Cannot delete the last remaining administrator in the system',
