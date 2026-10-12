@@ -6,17 +6,18 @@ const isValidEmail = (email) => {
   return typeof email === 'string' && emailRegex.test(email);
 };
 
-// Robust 24-hex-character ObjectId validator
 const isValidObjectId = (id) => {
   return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id) && mongoose.Types.ObjectId.isValid(id);
 };
 
-// @desc    Get all users (Admin only)
-// @route   GET /api/users
-// @access  Private/Admin
 export const getUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select('-password').sort({ createdAt: -1 });
+    const { role } = req.query || {};
+    const query = {};
+    if (role && ['Admin', 'User'].includes(role)) {
+      query.role = role;
+    }
+    const users = await User.find(query).select('-password').sort({ createdAt: -1 });
     return res.json(users);
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -24,9 +25,6 @@ export const getUsers = async (req, res) => {
   }
 };
 
-// @desc    Get single user by ID (Admin only)
-// @route   GET /api/users/:id
-// @access  Private/Admin
 export const getUserById = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -50,9 +48,6 @@ export const getUserById = async (req, res) => {
   }
 };
 
-// @desc    Create a user (Admin only)
-// @route   POST /api/users
-// @access  Private/Admin
 export const createUser = async (req, res) => {
   try {
     const { fullName, email, password, role } = req.body || {};
@@ -112,9 +107,6 @@ export const createUser = async (req, res) => {
   }
 };
 
-// @desc    Update user details (Admin only)
-// @route   PUT /api/users/:id
-// @access  Private/Admin
 export const updateUser = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -123,7 +115,6 @@ export const updateUser = async (req, res) => {
       return res.status(400).json({ message: 'Invalid User ID format' });
     }
 
-    // Guard against blank or empty payloads
     if (!req.body || typeof req.body !== 'object' || Object.keys(req.body).length === 0) {
       return res.status(400).json({ message: 'Payload cannot be empty' });
     }
@@ -145,14 +136,17 @@ export const updateUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Prevent Admin from demoting their own active logged-in account
-    if (req.user && req.user._id.toString() === userId && hasRole && role !== 'Admin') {
+    if (
+      req.user &&
+      (req.user._id.toString() === userId || req.user.email?.toLowerCase() === user.email?.toLowerCase()) &&
+      hasRole &&
+      role !== 'Admin'
+    ) {
       return res.status(400).json({
         message: 'You cannot demote your own admin account while logged in',
       });
     }
 
-    // Prevent demoting the last remaining administrator in the system
     if (user.role === 'Admin' && hasRole && role !== 'Admin') {
       const adminCount = await User.countDocuments({ role: 'Admin' });
       if (adminCount <= 1) {
@@ -162,7 +156,6 @@ export const updateUser = async (req, res) => {
       }
     }
 
-    // Validate and apply fullName
     if (hasFullName) {
       if (typeof fullName !== 'string' || !fullName.trim()) {
         return res.status(400).json({ message: 'Full name cannot be blank' });
@@ -170,7 +163,6 @@ export const updateUser = async (req, res) => {
       user.fullName = fullName.trim();
     }
 
-    // Validate and apply email
     if (hasEmail) {
       if (typeof email !== 'string' || !email.trim()) {
         return res.status(400).json({ message: 'Email address cannot be blank' });
@@ -186,7 +178,6 @@ export const updateUser = async (req, res) => {
       user.email = cleanEmail;
     }
 
-    // Validate and apply role
     if (hasRole) {
       if (typeof role !== 'string' || !['Admin', 'User'].includes(role.trim())) {
         return res.status(400).json({ message: 'Role must be either Admin or User' });
@@ -194,12 +185,11 @@ export const updateUser = async (req, res) => {
       user.role = role.trim();
     }
 
-    // Validate and apply password
     if (hasPassword) {
       if (typeof password !== 'string' || password.length < 6) {
         return res.status(400).json({ message: 'Password must be at least 6 characters' });
       }
-      user.password = password; // pre-save hook will hash password cleanly
+      user.password = password;
     }
 
     const updatedUser = await user.save();
@@ -220,9 +210,6 @@ export const updateUser = async (req, res) => {
   }
 };
 
-// @desc    Delete user (Admin only)
-// @route   DELETE /api/users/:id
-// @access  Private/Admin
 export const deleteUser = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -231,19 +218,20 @@ export const deleteUser = async (req, res) => {
       return res.status(400).json({ message: 'Invalid User ID format' });
     }
 
-    // Prevent active Admin from deleting themselves
-    if (req.user && req.user._id.toString() === userId) {
-      return res.status(400).json({
-        message: 'You cannot delete your own admin account while logged in',
-      });
-    }
-
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Prevent deleting the last remaining administrator in the system
+    if (
+      req.user &&
+      (req.user._id.toString() === userId || req.user.email?.toLowerCase() === user.email?.toLowerCase())
+    ) {
+      return res.status(400).json({
+        message: 'You cannot delete your own admin account while logged in',
+      });
+    }
+
     if (user.role === 'Admin') {
       const adminCount = await User.countDocuments({ role: 'Admin' });
       if (adminCount <= 1) {
@@ -263,4 +251,3 @@ export const deleteUser = async (req, res) => {
     return res.status(500).json({ message: 'Server error deleting user' });
   }
 };
-

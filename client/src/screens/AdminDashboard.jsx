@@ -12,26 +12,23 @@ const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('All');
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modalError, setModalError] = useState('');
 
-  // Delete Confirm State
   const [userToDelete, setUserToDelete] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
-    const fetchUsers = async () => {
-      setLoading(true);
-      setError('');
+    const loadUsers = async () => {
       try {
         const response = await api.get('/users');
-        if (isMounted) setUsers(response.data);
+        if (isMounted) setUsers(response.data || []);
       } catch (err) {
         if (isMounted) {
           console.error('Error fetching users:', err);
@@ -46,11 +43,29 @@ const AdminDashboard = () => {
       }
     };
 
-    fetchUsers();
+    loadUsers();
     return () => {
       isMounted = false;
     };
   }, []);
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.get('/users');
+      setUsers(response.data || []);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+      if (err.response && err.response.data && err.response.data.message) {
+        setError(err.response.data.message);
+      } else {
+        setError('Failed to fetch user accounts');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleOpenAddModal = () => {
     setSelectedUser(null);
@@ -77,19 +92,24 @@ const AdminDashboard = () => {
 
     try {
       if (selectedUser) {
-        // Edit User
-        const response = await api.put(`/users/${selectedUser._id}`, formData);
-        setUsers(users.map((u) => (u._id === selectedUser._id ? response.data : u)));
+        const targetId = selectedUser._id || selectedUser.id;
+        const response = await api.put(`/users/${targetId}`, formData);
+        setUsers((prev) =>
+          prev.map((u) => ((u._id || u.id) === targetId ? response.data : u))
+        );
         setSuccessMsg(`User "${response.data.fullName}" updated successfully.`);
 
-        // Synchronize Redux shared auth state if active admin edited themselves
-        if (currentAdminId && selectedUser._id === currentAdminId) {
+        const isSelf = Boolean(
+          (currentAdminId && String(targetId) === String(currentAdminId)) ||
+          (currentUser?.email && selectedUser.email?.toLowerCase() === currentUser.email?.toLowerCase())
+        );
+
+        if (isSelf) {
           dispatch(updateUserSuccess(response.data));
         }
       } else {
-        // Add User
         const response = await api.post('/users', formData);
-        setUsers([response.data, ...users]);
+        setUsers((prev) => [response.data, ...prev]);
         setSuccessMsg(`User "${response.data.fullName}" created successfully.`);
       }
       handleCloseModal();
@@ -106,7 +126,14 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteClick = (user) => {
-    if (currentAdminId && user._id === currentAdminId) {
+    const targetId = String(user._id || user.id || '');
+    const selfId = String(currentAdminId || '');
+    const isSelf = Boolean(
+      (selfId && targetId === selfId) ||
+      (currentUser?.email && user.email?.toLowerCase() === currentUser.email?.toLowerCase())
+    );
+
+    if (isSelf) {
       setError('You cannot delete your own logged-in administrator account.');
       return;
     }
@@ -118,10 +145,18 @@ const AdminDashboard = () => {
     setSuccessMsg('');
     setError('');
 
+    const targetId = userToDelete._id || userToDelete.id;
+    const targetName = userToDelete.fullName || userToDelete.email;
+    const isTargetAdmin = userToDelete.role === 'Admin';
+
     try {
-      await api.delete(`/users/${userToDelete._id}`);
-      setUsers(users.filter((u) => u._id !== userToDelete._id));
-      setSuccessMsg(`User "${userToDelete.fullName}" deleted successfully.`);
+      await api.delete(`/users/${targetId}`);
+      setUsers((prev) => prev.filter((u) => (u._id || u.id) !== targetId));
+      setSuccessMsg(
+        isTargetAdmin
+          ? `Administrator "${targetName}" deleted successfully.`
+          : `User "${targetName}" deleted successfully.`
+      );
       setUserToDelete(null);
     } catch (err) {
       console.error('Delete user error:', err);
@@ -134,17 +169,22 @@ const AdminDashboard = () => {
     }
   };
 
-  const filteredUsers = users.filter(
-    (u) =>
-      u.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.role.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = users.filter((u) => {
+    const nameMatch = (u.fullName || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const emailMatch = (u.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const roleMatch = (u.role || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = nameMatch || emailMatch || roleMatch;
+
+    const matchesRole =
+      roleFilter === 'All' ||
+      (u.role && u.role.toLowerCase() === roleFilter.toLowerCase());
+
+    return matchesSearch && matchesRole;
+  });
 
   return (
     <div className="min-h-[calc(100vh-3.5rem)] bg-[#0d0d0c] p-3 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-5">
-        {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-medium text-[#f2f0ec] tracking-tight">
@@ -155,15 +195,22 @@ const AdminDashboard = () => {
             </p>
           </div>
 
-          <button
-            onClick={handleOpenAddModal}
-            className="w-full sm:w-auto inline-flex items-center justify-center bg-[#f2994a] hover:bg-[#eb5e28] text-[#0d0d0c] font-medium px-4 py-2 rounded text-xs transition-colors min-h-[40px] cursor-pointer"
-          >
-            + Add user
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleRefresh}
+              className="w-full sm:w-auto inline-flex items-center justify-center bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] font-normal px-3.5 py-2 rounded text-xs transition-colors min-h-[40px] cursor-pointer"
+            >
+              ↻ Refresh
+            </button>
+            <button
+              onClick={handleOpenAddModal}
+              className="w-full sm:w-auto inline-flex items-center justify-center bg-[#f2994a] hover:bg-[#eb5e28] text-[#0d0d0c] font-medium px-4 py-2 rounded text-xs transition-colors min-h-[40px] cursor-pointer"
+            >
+              + Add user
+            </button>
+          </div>
         </div>
 
-        {/* Feedback Alerts */}
         {successMsg && (
           <div className="bg-[#5fae7f]/10 border border-[#5fae7f]/30 text-[#5fae7f] text-xs px-3.5 py-2.5 rounded flex items-center justify-between break-words-anywhere">
             <span>{successMsg}</span>
@@ -182,7 +229,6 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {/* Filter and Stats Bar */}
         <div className="bg-[#171614] border border-white/[0.08] rounded-xl p-3 sm:p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="w-full sm:w-72">
             <input
@@ -194,17 +240,40 @@ const AdminDashboard = () => {
             />
           </div>
 
-          <div className="flex items-center space-x-2 sm:space-x-3 text-xs font-normal text-[#8a8782] w-full sm:w-auto justify-between sm:justify-end">
-            <span className="bg-[#1a1918] px-2.5 py-1 rounded border border-white/[0.08]">
-              Total users: <strong className="text-[#f2f0ec] font-medium">{users.length}</strong>
-            </span>
-            <span className="bg-[#1a1918] px-2.5 py-1 rounded border border-white/[0.08]">
-              Admins: <strong className="text-[#f2f0ec] font-medium">{users.filter((u) => u.role === 'Admin').length}</strong>
-            </span>
+          <div className="flex items-center space-x-1.5 sm:space-x-2 text-xs w-full sm:w-auto justify-between sm:justify-end">
+            <button
+              onClick={() => setRoleFilter('All')}
+              className={`px-2.5 py-1 rounded border text-xs font-normal transition-colors cursor-pointer ${
+                roleFilter === 'All'
+                  ? 'bg-[#f2994a]/20 text-[#f2994a] border-[#f2994a]/40 font-medium'
+                  : 'bg-[#1a1918] text-[#8a8782] border-white/[0.08] hover:text-[#f2f0ec]'
+              }`}
+            >
+              All ({users.length})
+            </button>
+            <button
+              onClick={() => setRoleFilter('Admin')}
+              className={`px-2.5 py-1 rounded border text-xs font-normal transition-colors cursor-pointer ${
+                roleFilter === 'Admin'
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-medium'
+                  : 'bg-[#1a1918] text-[#8a8782] border-white/[0.08] hover:text-[#f2f0ec]'
+              }`}
+            >
+              Admins ({users.filter((u) => u.role === 'Admin').length})
+            </button>
+            <button
+              onClick={() => setRoleFilter('User')}
+              className={`px-2.5 py-1 rounded border text-xs font-normal transition-colors cursor-pointer ${
+                roleFilter === 'User'
+                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 font-medium'
+                  : 'bg-[#1a1918] text-[#8a8782] border-white/[0.08] hover:text-[#f2f0ec]'
+              }`}
+            >
+              Users ({users.filter((u) => u.role === 'User').length})
+            </button>
           </div>
         </div>
 
-        {/* Main Content Area: Desktop Table + Mobile Cards */}
         <div className="bg-[#171614] border border-white/[0.08] rounded-xl overflow-hidden">
           {loading ? (
             <div className="p-8 text-center text-[#8a8782] text-xs">
@@ -216,7 +285,6 @@ const AdminDashboard = () => {
             </div>
           ) : (
             <>
-              {/* DESKTOP TABLE VIEW (Visible on sm screens and larger >=640px) */}
               <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full text-left text-xs text-[#f2f0ec]">
                   <thead className="bg-[#1a1918] border-b border-white/[0.08] text-[#8a8782] font-normal">
@@ -229,9 +297,14 @@ const AdminDashboard = () => {
                   </thead>
                   <tbody className="divide-y divide-white/[0.08]">
                     {filteredUsers.map((u) => {
-                      const isCurrentAdmin = currentAdminId && u._id === currentAdminId;
+                      const isCurrentAdmin = Boolean(
+                        (currentAdminId && String(u._id || u.id) === String(currentAdminId)) ||
+                        (currentUser?.email && u.email?.toLowerCase() === currentUser.email?.toLowerCase())
+                      );
+                      const isOtherAdmin = u.role === 'Admin' && !isCurrentAdmin;
+
                       return (
-                        <tr key={u._id} className="hover:bg-white/[0.03] transition-colors">
+                        <tr key={u._id || u.id} className="hover:bg-white/[0.03] transition-colors">
                           <td className="px-4 py-3 font-medium text-[#f2f0ec] flex items-center space-x-2.5">
                             <div className="w-6 h-6 rounded bg-[#f2994a]/10 text-[#f2994a] border border-[#f2994a]/20 flex items-center justify-center font-medium text-[11px] shrink-0">
                               {u.fullName ? u.fullName.charAt(0).toUpperCase() : 'U'}
@@ -272,6 +345,8 @@ const AdminDashboard = () => {
                               title={
                                 isCurrentAdmin
                                   ? 'You cannot delete your own logged-in admin account'
+                                  : isOtherAdmin
+                                  ? 'Delete administrator'
                                   : 'Delete user'
                               }
                               className={`px-2.5 py-1 rounded font-normal text-[11px] ${
@@ -290,12 +365,16 @@ const AdminDashboard = () => {
                 </table>
               </div>
 
-              {/* MOBILE CARDS VIEW (Visible on mobile screens <640px) */}
               <div className="block sm:hidden divide-y divide-white/[0.08]">
                 {filteredUsers.map((u) => {
-                  const isCurrentAdmin = currentAdminId && u._id === currentAdminId;
+                  const isCurrentAdmin = Boolean(
+                    (currentAdminId && String(u._id || u.id) === String(currentAdminId)) ||
+                    (currentUser?.email && u.email?.toLowerCase() === currentUser.email?.toLowerCase())
+                  );
+                  const isOtherAdmin = u.role === 'Admin' && !isCurrentAdmin;
+
                   return (
-                    <div key={u._id} className="p-4 space-y-3">
+                    <div key={u._id || u.id} className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center space-x-2.5 min-w-0">
                           <div className="w-7 h-7 rounded bg-[#f2994a]/10 text-[#f2994a] border border-[#f2994a]/20 flex items-center justify-center font-medium text-xs shrink-0">
@@ -338,6 +417,8 @@ const AdminDashboard = () => {
                           title={
                             isCurrentAdmin
                               ? 'You cannot delete your own logged-in admin account'
+                              : isOtherAdmin
+                              ? 'Delete administrator'
                               : 'Delete user'
                           }
                           className={`flex-1 py-2 rounded font-normal text-xs text-center min-h-[38px] ${
@@ -358,7 +439,6 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* User Modal */}
       <UserModal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
@@ -366,16 +446,21 @@ const AdminDashboard = () => {
         initialData={selectedUser}
         isSubmitting={isSubmitting}
         apiError={modalError}
-        isSelf={!!(selectedUser && currentAdminId && selectedUser._id === currentAdminId)}
+        isSelf={Boolean(
+          selectedUser &&
+          ((currentAdminId && String(selectedUser._id || selectedUser.id) === String(currentAdminId)) ||
+           (currentUser?.email && selectedUser.email?.toLowerCase() === currentUser.email?.toLowerCase()))
+        )}
       />
 
-      {/* Delete Confirmation Modal */}
       {userToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0d0d0c]/80">
           <div className="bg-[#171614] border border-white/[0.08] rounded-xl p-4 sm:p-5 max-w-sm w-full space-y-3 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-base font-medium text-[#f2f0ec]">Confirm delete user</h3>
+            <h3 className="text-base font-medium text-[#f2f0ec]">
+              {userToDelete.role === 'Admin' ? 'Confirm delete administrator' : 'Confirm delete user'}
+            </h3>
             <p className="text-[#8a8782] text-xs break-words-anywhere">
-              Are you sure you want to delete user{' '}
+              Are you sure you want to delete {userToDelete.role === 'Admin' ? 'administrator' : 'user'}{' '}
               <strong className="text-[#f2f0ec] font-medium">{userToDelete.fullName}</strong> ({userToDelete.email})? This action cannot be undone.
             </p>
             <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2 border-t border-white/[0.08]">
@@ -389,7 +474,7 @@ const AdminDashboard = () => {
                 onClick={confirmDelete}
                 className="w-full sm:w-auto px-3.5 py-2 text-xs font-medium text-white bg-[#e0645a] hover:bg-[#d55349] rounded min-h-[38px]"
               >
-                Delete user
+                Delete {userToDelete.role === 'Admin' ? 'administrator' : 'user'}
               </button>
             </div>
           </div>
