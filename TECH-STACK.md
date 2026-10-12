@@ -5,7 +5,7 @@
 - **Routing**: React Router DOM v7
 - **HTTP Client**: Axios v1.x (with centralized instance & interceptors)
 - **Styling**: Tailwind CSS v4 + Vanilla CSS
-- **State & Session**: React State + `sessionStorage` (`token`, `user`, `role`)
+- **State & Session**: Redux Toolkit (`@reduxjs/toolkit` & `react-redux`) + `sessionStorage` for tab persistence
 
 ## Backend
 - **Runtime**: Node.js (ES Modules syntax: `import`/`export`)

@@ -7,7 +7,10 @@
     "server": "npm run dev --prefix server",
     "frontend": "npm run dev --prefix client",
     "backend": "npm run dev --prefix server",
-    "dev": "concurrently \"npm run client\" \"npm run server\""
+    "dev": "concurrently \"npm run client\" \"npm run server\"",
+    "lint": "npm --prefix client run lint",
+    "build": "npm --prefix client run build",
+    "check": "npm --prefix server run check"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

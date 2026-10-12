@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-const UserModal = ({ isOpen, onClose, onSubmit, initialData = null, isSubmitting = false, apiError = '' }) => {
+const UserModal = ({ isOpen, onClose, onSubmit, initialData = null, isSubmitting = false, apiError = '', isSelf = false }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -49,6 +49,10 @@ const UserModal = ({ isOpen, onClose, onSubmit, initialData = null, isSubmitting
 
     if (!['Admin', 'User'].includes(role)) {
       newErrors.role = 'Role must be Admin or User';
+    }
+
+    if (isSelf && role !== 'Admin') {
+      newErrors.role = 'You cannot demote your own administrator account';
     }
 
     setErrors(newErrors);
@@ -149,11 +153,23 @@ const UserModal = ({ isOpen, onClose, onSubmit, initialData = null, isSubmitting
             <select
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="w-full bg-[#1a1918] border border-white/[0.1] text-[#f2f0ec] rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#f2994a] focus:ring-1 focus:ring-[#f2994a]/40"
+              disabled={isSelf}
+              className="w-full bg-[#1a1918] border border-white/[0.1] text-[#f2f0ec] rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#f2994a] focus:ring-1 focus:ring-[#f2994a]/40 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <option value="User">Standard user</option>
-              <option value="Admin">Administrator</option>
+              {isSelf ? (
+                <option value="Admin">Administrator (Your active account)</option>
+              ) : (
+                <>
+                  <option value="User">Standard user</option>
+                  <option value="Admin">Administrator</option>
+                </>
+              )}
             </select>
+            {isSelf && (
+              <p className="text-[11px] text-[#8a8782] mt-1">
+                You cannot demote your own active administrator account.
+              </p>
+            )}
             {errors.role && <p className="text-xs text-[#e0645a] mt-1">{errors.role}</p>}
           </div>
 

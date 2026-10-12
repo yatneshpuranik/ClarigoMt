@@ -1,9 +1,12 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
-// Helper to generate JWT Token
+// Helper to generate JWT Token - strictly requires JWT_SECRET
 const generateToken = (id, role) => {
-  const secret = process.env.JWT_SECRET || 'supersecret_clarigo_jwt_key_2026';
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is not defined on the server');
+  }
   return jwt.sign({ id, role }, secret, {
     expiresIn: '30d',
   });
@@ -12,7 +15,7 @@ const generateToken = (id, role) => {
 // Email validation helper
 const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  return typeof email === 'string' && emailRegex.test(email);
 };
 
 // @desc    Register a new user
@@ -20,21 +23,27 @@ const isValidEmail = (email) => {
 // @access  Public
 export const signup = async (req, res) => {
   try {
-    const { fullName, email, password, role, adminKey } = req.body;
+    const { fullName, email, password, role, adminKey } = req.body || {};
 
-    // Field validations
+    // Validate request payload
     if (
       !fullName ||
+      typeof fullName !== 'string' ||
       !fullName.trim() ||
       !email ||
+      typeof email !== 'string' ||
       !email.trim() ||
       !password ||
-      !role
+      typeof password !== 'string' ||
+      !password.trim() ||
+      !role ||
+      typeof role !== 'string'
     ) {
-      return res.status(400).json({ message: 'All fields are required' });
+      return res.status(400).json({ message: 'All fields (fullName, email, password, role) are required' });
     }
 
-    if (!isValidEmail(email.trim())) {
+    const cleanEmail = email.toLowerCase().trim();
+    if (!isValidEmail(cleanEmail)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
 
@@ -46,16 +55,23 @@ export const signup = async (req, res) => {
       return res.status(400).json({ message: 'Role must be either Admin or User' });
     }
 
-    // Verify Admin Key for Admin signup
+    // Verify Admin Key for Admin signup with NO hardcoded fallback
     if (role === 'Admin') {
-      const expectedKey = process.env.ADMIN_SIGNUP_KEY || 'admin123';
-      if (!adminKey || adminKey.trim() !== expectedKey) {
-        return res.status(403).json({ message: 'Invalid or missing Admin Signup Key' });
+      const serverAdminKey = process.env.ADMIN_SIGNUP_KEY;
+      if (!serverAdminKey) {
+        return res.status(500).json({
+          message: 'Admin self-registration is currently unavailable (ADMIN_SIGNUP_KEY is not configured on server)',
+        });
+      }
+      if (!adminKey || typeof adminKey !== 'string' || adminKey.trim() !== serverAdminKey) {
+        return res.status(403).json({
+          message: 'Invalid or missing Admin Signup Key. Authorized key required to register as Administrator.',
+        });
       }
     }
 
     // Check duplicate email
-    const userExists = await User.findOne({ email: email.toLowerCase().trim() });
+    const userExists = await User.findOne({ email: cleanEmail });
     if (userExists) {
       return res.status(409).json({ message: 'User with this email already exists' });
     }
@@ -63,7 +79,7 @@ export const signup = async (req, res) => {
     // Create user
     const user = await User.create({
       fullName: fullName.trim(),
-      email: email.toLowerCase().trim(),
+      email: cleanEmail,
       password,
       role,
     });
@@ -80,7 +96,7 @@ export const signup = async (req, res) => {
         },
       });
     } else {
-      return res.status(400).json({ message: 'Invalid user data' });
+      return res.status(400).json({ message: 'Invalid user data provided' });
     }
   } catch (error) {
     console.error('Signup error:', error);
@@ -93,14 +109,21 @@ export const signup = async (req, res) => {
 // @access  Public
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
     // Field validations
-    if (!email || !password) {
+    if (
+      !email ||
+      typeof email !== 'string' ||
+      !email.trim() ||
+      !password ||
+      typeof password !== 'string'
+    ) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    if (!isValidEmail(email)) {
+    const cleanEmail = email.toLowerCase().trim();
+    if (!isValidEmail(cleanEmail)) {
       return res.status(400).json({ message: 'Please provide a valid email address' });
     }
 
@@ -109,7 +132,7 @@ export const login = async (req, res) => {
     }
 
     // Check user email
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const user = await User.findOne({ email: cleanEmail });
 
     if (user && (await user.matchPassword(password))) {
       const token = generateToken(user._id, user.role);

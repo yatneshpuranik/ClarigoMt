@@ -3,45 +3,49 @@
 ## System Architecture
 
 ```text
-Frontend (React + Vite + React Router + Axios)
- ├── Pages
+Frontend (React 19 + Redux Toolkit + Vite + React Router DOM v7 + Axios)
+ ├── Pages / Screens
  │   ├── Login (`/login`)
- │   ├── Signup (`/signup`)
- │   ├── Dashboard (`/dashboard`) - User Welcome Screen
- │   └── AdminDashboard (`/admin`) - User Management Table
+ │   ├── Signup (`/signup`) - Supports key-protected Admin registration
+ │   ├── Dashboard (`/dashboard`) - Standard User Welcome Screen
+ │   └── AdminDashboard (`/admin`) - User Management CRUD Table & Responsive Cards
  │
  ├── Components
- │   ├── Header - Navigation & Dynamic Auth State
- │   ├── ProtectedRoute - Client guard for logged-in users
- │   ├── AdminRoute - Client guard for Admin role only
- │   └── UserModal - Form modal for Add / Edit User
+ │   ├── Header - Navigation & Synchronized Redux Auth State
+ │   ├── ProtectedRoute - Client guard for authenticated users
+ │   ├── AdminRoute - Client guard for Admin role with database backing
+ │   └── UserModal - Add / Edit User Modal with self-demotion lockout prevention
+ │
+ ├── State Management (Redux Toolkit)
+ │   ├── store.js - Central Redux Store
+ │   └── authSlice.js - User authentication slice (`token`, `user`, `role`, `isInitialized`)
  │
  ├── Services
  │   └── api.js - Centralized Axios instance with Bearer token & 401 interceptor
  │
- └── Auth State & Session Handling
-     └── sessionStorage (`token`, `user`, `role`)
+ └── Persistence
+     └── sessionStorage (`token`, `user`, `role`) for seamless tab persistence
 
-Backend (Node.js + Express.js)
+Backend (Node.js + Express.js 5)
  ├── Config
- │   └── db.js - MongoDB Mongoose connection handler
+ │   ├── db.js - MongoDB Mongoose connection handler
+ │   └── swagger.js - OpenAPI 3.0.0 / Swagger UI definition
  │
  ├── Models
- │   └── User.js - Mongoose Schema (fullName, email, password, role)
+ │   └── User.js - Mongoose Schema (fullName, email, password, role) with bcrypt hook
  │
  ├── Middleware
- │   ├── authMiddleware.js - JWT verification middleware
- │   └── adminMiddleware.js - Admin role authorization middleware
+ │   └── authMiddleware.js - JWT verification (`protect`) & authoritative DB role check (`adminOnly`)
  │
  ├── Controllers
- │   ├── authController.js - signup, login, getMe handlers
- │   └── userController.js - getUsers, createUser, updateUser, deleteUser handlers
+ │   ├── authController.js - signup (key-protected), login, getMe handlers
+ │   └── userController.js - getUsers, getUserById, createUser, updateUser, deleteUser handlers
  │
  ├── Routes
  │   ├── authRoutes.js - `/api/auth` endpoints
  │   └── userRoutes.js - `/api/users` endpoints
  │
- └── server.js - Express application entry point
+ └── server.js - Express application entry point with startup env checks and error middleware
 ```
 
 ---
@@ -50,43 +54,36 @@ Backend (Node.js + Express.js)
 
 ### 1. Request & Authentication Flow
 1. **User Login**: User submits credentials on `/login`.
-2. **Backend Processing**: `authController.login` validates input, finds user in MongoDB by email, and verifies password using `bcryptjs.compare()`.
-3. **Token Generation**: Upon verification, backend signs a JWT containing `{ id: user._id, role: user.role }` using `JWT_SECRET`.
+2. **Backend Processing**: `authController.login` validates input strings, finds user in MongoDB by email, and verifies password using `bcryptjs.compare()`.
+3. **Token Generation**: Upon verification, backend signs a JWT containing `{ id: user._id, role: user.role }` using `JWT_SECRET`. No hardcoded fallback secret is used.
 4. **Response**: Backend responds with `{ token, user: { id, fullName, email, role } }`.
-5. **Client Storage**: React app saves `token`, `user`, and `role` to `sessionStorage` and sets up authentication headers in Axios.
+5. **Redux Store**: Dispatches `setCredentials({ token, user })`, updating the centralized Redux store and caching values in `sessionStorage`.
 6. **Navigation**: User is redirected to `/admin` if Admin, or `/dashboard` if standard User.
 
-### 2. Authenticated API Request Flow
-1. **Axios Interceptor**: For every outgoing HTTP request, Axios injects `Authorization: Bearer <token>` from `sessionStorage`.
-2. **Backend Auth Middleware**: Express runs `authMiddleware`:
-   - Extracts token from `Authorization` header.
-   - Verifies token via `jwt.verify(token, process.env.JWT_SECRET)`.
-   - Attaches decoded user object `req.user` to the request object.
-3. **Backend Admin Middleware**: For `/api/users` endpoints, Express runs `adminMiddleware`:
-   - Checks `req.user.role === 'Admin'`.
-   - If not Admin, rejects immediately with `403 Forbidden`.
-4. **Controller Execution**: Handles business logic, reads/writes to MongoDB, and returns JSON payload (excluding password fields).
+### 2. Key-Protected Admin Registration Flow
+1. **Admin Selection**: On `/signup`, choosing `role: "Admin"` dynamically activates the Admin Signup Key input field.
+2. **Submission**: Client sends `{ fullName, email, password, role, adminKey }`.
+3. **Server Validation**: `authController.signup` checks `adminKey === process.env.ADMIN_SIGNUP_KEY`. If invalid or omitted, returns `403 Forbidden`.
+4. **Account Creation**: Password hashed in Mongoose `pre('save')` hook, signed JWT issued, and Redux credentials set.
 
-### 3. Frontend Protection Flow
-- **`ProtectedRoute`**: Wraps `/dashboard`. Checks `sessionStorage.getItem('token')`. If missing, redirects to `/login`.
-- **`AdminRoute`**: Wraps `/admin`. Checks `sessionStorage.getItem('token')` and `sessionStorage.getItem('role') === 'Admin'`. If not logged in, redirects to `/login`. If logged in as non-Admin, redirects to `/dashboard`.
-- **Axios 401 Interceptor**: If any backend response returns `401 Unauthorized`, `sessionStorage` is cleared and the user is redirected to `/login`.
+### 3. Authenticated API Request Flow
+1. **Axios Interceptor**: Outgoing HTTP requests automatically inject `Authorization: Bearer <token>` from `sessionStorage`.
+2. **Backend Auth Middleware**: Express runs `protect` middleware:
+   - Validates Bearer token using `jwt.verify(token, process.env.JWT_SECRET)`.
+   - Queries authoritative database record: `User.findById(decoded.id).select('-password')`.
+   - Attaches live user record to `req.user`.
+3. **Backend Admin Authorization**: Protected user routes run `adminOnly` middleware:
+   - Verifies `req.user.role === 'Admin'`. If not Admin, rejects immediately with `403 Forbidden`.
+4. **Controller Execution**: Handles business logic, reads/writes to MongoDB, and returns JSON payload (passwords excluded).
 
-### 4. MongoDB Model Schema (`User`)
-```javascript
-{
-  fullName: { type: String, required: true, trim: true },
-  email:    { type: String, required: true, unique: true, lowercase: true, trim: true },
-  password: { type: String, required: true, minlength: 6 },
-  role:     { type: String, enum: ['Admin', 'User'], default: 'User' },
-  timestamps: true
-}
-```
+### 4. Anti-Lockout & Defensive Guard Flow
+- **Self-Demotion Prevention**: If an active Admin attempts to update their own account to `User`, the backend rejects with `400 Bad Request`.
+- **Self-Deletion Prevention**: If an active Admin attempts to delete their own account, the backend rejects with `400 Bad Request`.
+- **Last-Admin Safeguard**: If an Admin is the sole remaining administrator in the database, demoting or deleting them is blocked (`adminCount <= 1` check).
+- **Client-Side Enforcement**: In `AdminDashboard`, the active Admin's Delete button is disabled and tagged `(You)`. In `UserModal`, demoting the active Admin account is disabled with clear user feedback.
 
-### 5. Session & Storage Lifecycle
-- **Creation**: On successful login/signup, items set in `sessionStorage`:
-  - `token`: Bearer JWT token string.
-  - `user`: JSON stringified user details (`id`, `fullName`, `email`, `role`).
-  - `role`: String `"Admin"` or `"User"`.
-- **Persistence**: Persists across page reloads within the same browser tab session.
-- **Destruction**: Cleared on explicit Logout button click or on receiving HTTP 401 token invalidation.
+### 5. Single Source of Truth (Redux Toolkit)
+- On app launch, `App.jsx` evaluates if a session exists and fetches `/auth/me` **only once** to initialize the profile.
+- All child components (`Header`, `ProtectedRoute`, `AdminRoute`, `Dashboard`, `AdminDashboard`) subscribe to `state.auth` directly without triggering redundant network requests.
+- When an administrator modifies their own profile in the dashboard, `updateUserSuccess` updates Redux state immediately, reflecting changes across the entire interface.
+

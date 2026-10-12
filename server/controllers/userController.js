@@ -3,11 +3,13 @@ import User from '../models/User.js';
 
 const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  return typeof email === 'string' && emailRegex.test(email);
 };
 
-// Helper to check valid ObjectId
-const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+// Robust 24-hex-character ObjectId validator
+const isValidObjectId = (id) => {
+  return typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id) && mongoose.Types.ObjectId.isValid(id);
+};
 
 // @desc    Get all users (Admin only)
 // @route   GET /api/users
@@ -22,18 +24,58 @@ export const getUsers = async (req, res) => {
   }
 };
 
+// @desc    Get single user by ID (Admin only)
+// @route   GET /api/users/:id
+// @access  Private/Admin
+export const getUserById = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    if (!isValidObjectId(userId)) {
+      return res.status(400).json({ message: 'Invalid User ID format' });
+    }
+
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    return res.json(user);
+  } catch (error) {
+    if (error.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid User ID format' });
+    }
+    console.error('Error fetching user:', error);
+    return res.status(500).json({ message: 'Server error fetching user' });
+  }
+};
+
 // @desc    Create a user (Admin only)
 // @route   POST /api/users
 // @access  Private/Admin
 export const createUser = async (req, res) => {
   try {
-    const { fullName, email, password, role } = req.body;
+    const { fullName, email, password, role } = req.body || {};
 
-    if (!fullName || !fullName.trim() || !email || !email.trim() || !password || !role) {
+    if (
+      !fullName ||
+      typeof fullName !== 'string' ||
+      !fullName.trim() ||
+      !email ||
+      typeof email !== 'string' ||
+      !email.trim() ||
+      !password ||
+      typeof password !== 'string' ||
+      !password.trim() ||
+      !role ||
+      typeof role !== 'string' ||
+      !role.trim()
+    ) {
       return res.status(400).json({ message: 'All fields (fullName, email, password, role) are required' });
     }
 
-    if (!isValidEmail(email.trim())) {
+    const cleanEmail = email.toLowerCase().trim();
+    if (!isValidEmail(cleanEmail)) {
       return res.status(400).json({ message: 'Invalid email address' });
     }
 
@@ -41,20 +83,20 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    if (!['Admin', 'User'].includes(role)) {
+    if (!['Admin', 'User'].includes(role.trim())) {
       return res.status(400).json({ message: 'Role must be either Admin or User' });
     }
 
-    const userExists = await User.findOne({ email: email.toLowerCase().trim() });
+    const userExists = await User.findOne({ email: cleanEmail });
     if (userExists) {
       return res.status(409).json({ message: 'User with this email already exists' });
     }
 
     const user = await User.create({
       fullName: fullName.trim(),
-      email: email.toLowerCase().trim(),
+      email: cleanEmail,
       password,
-      role,
+      role: role.trim(),
     });
 
     return res.status(201).json({
@@ -75,16 +117,27 @@ export const createUser = async (req, res) => {
 // @access  Private/Admin
 export const updateUser = async (req, res) => {
   try {
-    const { fullName, email, password, role } = req.body;
     const userId = req.params.id;
 
     if (!isValidObjectId(userId)) {
       return res.status(400).json({ message: 'Invalid User ID format' });
     }
 
-    // Prevent Admin from demoting their own logged-in account
-    if (req.user && req.user._id.toString() === userId && role && role !== 'Admin') {
-      return res.status(400).json({ message: 'You cannot demote your own admin account while logged in' });
+    // Guard against blank or empty payloads
+    if (!req.body || typeof req.body !== 'object' || Object.keys(req.body).length === 0) {
+      return res.status(400).json({ message: 'Payload cannot be empty' });
+    }
+
+    const { fullName, email, password, role } = req.body;
+    const hasFullName = fullName !== undefined;
+    const hasEmail = email !== undefined;
+    const hasRole = role !== undefined;
+    const hasPassword = password !== undefined && password !== '';
+
+    if (!hasFullName && !hasEmail && !hasRole && !hasPassword) {
+      return res.status(400).json({
+        message: 'At least one field (fullName, email, password, role) must be provided for update',
+      });
     }
 
     const user = await User.findById(userId);
@@ -92,14 +145,36 @@ export const updateUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    if (fullName) {
-      if (!fullName.trim()) {
-        return res.status(400).json({ message: 'Full name cannot be empty' });
+    // Prevent Admin from demoting their own active logged-in account
+    if (req.user && req.user._id.toString() === userId && hasRole && role !== 'Admin') {
+      return res.status(400).json({
+        message: 'You cannot demote your own admin account while logged in',
+      });
+    }
+
+    // Prevent demoting the last remaining administrator in the system
+    if (user.role === 'Admin' && hasRole && role !== 'Admin') {
+      const adminCount = await User.countDocuments({ role: 'Admin' });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          message: 'Cannot demote the last remaining administrator in the system',
+        });
+      }
+    }
+
+    // Validate and apply fullName
+    if (hasFullName) {
+      if (typeof fullName !== 'string' || !fullName.trim()) {
+        return res.status(400).json({ message: 'Full name cannot be blank' });
       }
       user.fullName = fullName.trim();
     }
 
-    if (email) {
+    // Validate and apply email
+    if (hasEmail) {
+      if (typeof email !== 'string' || !email.trim()) {
+        return res.status(400).json({ message: 'Email address cannot be blank' });
+      }
       const cleanEmail = email.toLowerCase().trim();
       if (!isValidEmail(cleanEmail)) {
         return res.status(400).json({ message: 'Invalid email address' });
@@ -111,18 +186,20 @@ export const updateUser = async (req, res) => {
       user.email = cleanEmail;
     }
 
-    if (role) {
-      if (!['Admin', 'User'].includes(role)) {
+    // Validate and apply role
+    if (hasRole) {
+      if (typeof role !== 'string' || !['Admin', 'User'].includes(role.trim())) {
         return res.status(400).json({ message: 'Role must be either Admin or User' });
       }
-      user.role = role;
+      user.role = role.trim();
     }
 
-    if (password && password.trim() !== '') {
-      if (password.length < 6) {
+    // Validate and apply password
+    if (hasPassword) {
+      if (typeof password !== 'string' || password.length < 6) {
         return res.status(400).json({ message: 'Password must be at least 6 characters' });
       }
-      user.password = password; // pre-save hook will hash password
+      user.password = password; // pre-save hook will hash password cleanly
     }
 
     const updatedUser = await user.save();
@@ -156,12 +233,24 @@ export const deleteUser = async (req, res) => {
 
     // Prevent active Admin from deleting themselves
     if (req.user && req.user._id.toString() === userId) {
-      return res.status(400).json({ message: 'You cannot delete your own admin account while logged in' });
+      return res.status(400).json({
+        message: 'You cannot delete your own admin account while logged in',
+      });
     }
 
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Prevent deleting the last remaining administrator in the system
+    if (user.role === 'Admin') {
+      const adminCount = await User.countDocuments({ role: 'Admin' });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          message: 'Cannot delete the last remaining administrator in the system',
+        });
+      }
     }
 
     await User.findByIdAndDelete(userId);

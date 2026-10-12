@@ -80,6 +80,11 @@ const options = {
               enum: ['Admin', 'User'],
               example: 'User',
             },
+            adminKey: {
+              type: 'string',
+              description: 'Required if role is Admin. Must match the server ADMIN_SIGNUP_KEY.',
+              example: 'admin123',
+            },
           },
         },
         LoginRequest: {
@@ -390,6 +395,48 @@ const options = {
         },
       },
       '/api/users/{id}': {
+        get: {
+          tags: ['User Management'],
+          summary: 'Get user details by ID',
+          description: '**Admin Only**. Fetches a specific user record by MongoDB ID.',
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: 'id',
+              in: 'path',
+              required: true,
+              description: 'Target MongoDB User ID',
+              schema: {
+                type: 'string',
+              },
+              example: '6a8c0c814fb125681a4d7443',
+            },
+          ],
+          responses: {
+            '200': {
+              description: 'User details retrieved',
+              content: {
+                'application/json': {
+                  schema: {
+                    $ref: '#/components/schemas/User',
+                  },
+                },
+              },
+            },
+            '400': {
+              description: 'Invalid User ID format',
+            },
+            '401': {
+              description: 'Unauthorized',
+            },
+            '403': {
+              description: 'Forbidden (Non-Admin user)',
+            },
+            '404': {
+              description: 'User Not Found',
+            },
+          },
+        },
         put: {
           tags: ['User Management'],
           summary: 'Update an existing user account',

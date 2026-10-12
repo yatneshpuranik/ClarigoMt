@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
+import { useSelector, useDispatch } from 'react-redux';
+import { updateUserSuccess } from '../store/authSlice';
 import api from '../services/api';
 import UserModal from '../components/UserModal';
 
 const AdminDashboard = () => {
+  const dispatch = useDispatch();
+  const { user: currentUser } = useSelector((state) => state.auth);
+  const currentAdminId = currentUser?.id || currentUser?._id;
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -75,6 +81,11 @@ const AdminDashboard = () => {
         const response = await api.put(`/users/${selectedUser._id}`, formData);
         setUsers(users.map((u) => (u._id === selectedUser._id ? response.data : u)));
         setSuccessMsg(`User "${response.data.fullName}" updated successfully.`);
+
+        // Synchronize Redux shared auth state if active admin edited themselves
+        if (currentAdminId && selectedUser._id === currentAdminId) {
+          dispatch(updateUserSuccess(response.data));
+        }
       } else {
         // Add User
         const response = await api.post('/users', formData);
@@ -95,6 +106,10 @@ const AdminDashboard = () => {
   };
 
   const handleDeleteClick = (user) => {
+    if (currentAdminId && user._id === currentAdminId) {
+      setError('You cannot delete your own logged-in administrator account.');
+      return;
+    }
     setUserToDelete(user);
   };
 
@@ -213,90 +228,130 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.08]">
-                    {filteredUsers.map((u) => (
-                      <tr key={u._id} className="hover:bg-white/[0.03] transition-colors">
-                        <td className="px-4 py-3 font-medium text-[#f2f0ec] flex items-center space-x-2.5">
-                          <div className="w-6 h-6 rounded bg-[#f2994a]/10 text-[#f2994a] border border-[#f2994a]/20 flex items-center justify-center font-medium text-[11px] shrink-0">
-                            {u.fullName ? u.fullName.charAt(0).toUpperCase() : 'U'}
-                          </div>
-                          <span className="truncate max-w-[180px] lg:max-w-none">{u.fullName}</span>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-[#8a8782] truncate max-w-[200px] lg:max-w-none">
-                          {u.email}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[11px] font-medium inline-block ${
-                              u.role === 'Admin'
-                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                            }`}
-                          >
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
-                          <button
-                            onClick={() => handleOpenEditModal(u)}
-                            className="px-2.5 py-1 bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] rounded font-normal text-[11px] cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClick(u)}
-                            className="px-2.5 py-1 bg-[#e0645a]/10 hover:bg-[#e0645a]/20 text-[#e0645a] border border-[#e0645a]/30 rounded font-normal text-[11px] cursor-pointer"
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredUsers.map((u) => {
+                      const isCurrentAdmin = currentAdminId && u._id === currentAdminId;
+                      return (
+                        <tr key={u._id} className="hover:bg-white/[0.03] transition-colors">
+                          <td className="px-4 py-3 font-medium text-[#f2f0ec] flex items-center space-x-2.5">
+                            <div className="w-6 h-6 rounded bg-[#f2994a]/10 text-[#f2994a] border border-[#f2994a]/20 flex items-center justify-center font-medium text-[11px] shrink-0">
+                              {u.fullName ? u.fullName.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                            <span className="truncate max-w-[180px] lg:max-w-none">
+                              {u.fullName}
+                              {isCurrentAdmin && (
+                                <span className="ml-1.5 text-[10px] text-[#f2994a] font-normal">
+                                  (You)
+                                </span>
+                              )}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-[#8a8782] truncate max-w-[200px] lg:max-w-none">
+                            {u.email}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[11px] font-medium inline-block ${
+                                u.role === 'Admin'
+                                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              }`}
+                            >
+                              {u.role}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
+                            <button
+                              onClick={() => handleOpenEditModal(u)}
+                              className="px-2.5 py-1 bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] rounded font-normal text-[11px] cursor-pointer"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(u)}
+                              disabled={isCurrentAdmin}
+                              title={
+                                isCurrentAdmin
+                                  ? 'You cannot delete your own logged-in admin account'
+                                  : 'Delete user'
+                              }
+                              className={`px-2.5 py-1 rounded font-normal text-[11px] ${
+                                isCurrentAdmin
+                                  ? 'bg-white/[0.02] text-white/20 border border-white/[0.04] cursor-not-allowed'
+                                  : 'bg-[#e0645a]/10 hover:bg-[#e0645a]/20 text-[#e0645a] border border-[#e0645a]/30 cursor-pointer'
+                              }`}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
 
               {/* MOBILE CARDS VIEW (Visible on mobile screens <640px) */}
               <div className="block sm:hidden divide-y divide-white/[0.08]">
-                {filteredUsers.map((u) => (
-                  <div key={u._id} className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center space-x-2.5 min-w-0">
-                        <div className="w-7 h-7 rounded bg-[#f2994a]/10 text-[#f2994a] border border-[#f2994a]/20 flex items-center justify-center font-medium text-xs shrink-0">
-                          {u.fullName ? u.fullName.charAt(0).toUpperCase() : 'U'}
+                {filteredUsers.map((u) => {
+                  const isCurrentAdmin = currentAdminId && u._id === currentAdminId;
+                  return (
+                    <div key={u._id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center space-x-2.5 min-w-0">
+                          <div className="w-7 h-7 rounded bg-[#f2994a]/10 text-[#f2994a] border border-[#f2994a]/20 flex items-center justify-center font-medium text-xs shrink-0">
+                            {u.fullName ? u.fullName.charAt(0).toUpperCase() : 'U'}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-[#f2f0ec] truncate">
+                              {u.fullName}
+                              {isCurrentAdmin && (
+                                <span className="ml-1 text-[11px] text-[#f2994a] font-normal">
+                                  (You)
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs font-mono text-[#8a8782] break-words-anywhere">{u.email}</p>
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-[#f2f0ec] truncate">{u.fullName}</p>
-                          <p className="text-xs font-mono text-[#8a8782] break-words-anywhere">{u.email}</p>
-                        </div>
+
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
+                            u.role === 'Admin'
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          }`}
+                        >
+                          {u.role}
+                        </span>
                       </div>
 
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0 ${
-                          u.role === 'Admin'
-                            ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        }`}
-                      >
-                        {u.role}
-                      </span>
+                      <div className="flex items-center justify-end space-x-2 pt-1">
+                        <button
+                          onClick={() => handleOpenEditModal(u)}
+                          className="flex-1 py-2 bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] rounded font-normal text-xs text-center min-h-[38px] cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(u)}
+                          disabled={isCurrentAdmin}
+                          title={
+                            isCurrentAdmin
+                              ? 'You cannot delete your own logged-in admin account'
+                              : 'Delete user'
+                          }
+                          className={`flex-1 py-2 rounded font-normal text-xs text-center min-h-[38px] ${
+                            isCurrentAdmin
+                              ? 'bg-white/[0.02] text-white/20 border border-white/[0.04] cursor-not-allowed'
+                              : 'bg-[#e0645a]/10 hover:bg-[#e0645a]/20 text-[#e0645a] border border-[#e0645a]/30 cursor-pointer'
+                          }`}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="flex items-center justify-end space-x-2 pt-1">
-                      <button
-                        onClick={() => handleOpenEditModal(u)}
-                        className="flex-1 py-2 bg-white/[0.05] hover:bg-white/[0.1] text-[#f2f0ec] border border-white/[0.1] rounded font-normal text-xs text-center min-h-[38px] cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClick(u)}
-                        className="flex-1 py-2 bg-[#e0645a]/10 hover:bg-[#e0645a]/20 text-[#e0645a] border border-[#e0645a]/30 rounded font-normal text-xs text-center min-h-[38px] cursor-pointer"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}
@@ -311,6 +366,7 @@ const AdminDashboard = () => {
         initialData={selectedUser}
         isSubmitting={isSubmitting}
         apiError={modalError}
+        isSelf={!!(selectedUser && currentAdminId && selectedUser._id === currentAdminId)}
       />
 
       {/* Delete Confirmation Modal */}

@@ -25,13 +25,13 @@ const RootRedirect = () => {
 
 function App() {
   const dispatch = useDispatch();
-  const token = useSelector((state) => state.auth.token);
+  const { token, isInitialized } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    if (token) {
+    if (token && !isInitialized) {
       dispatch(fetchCurrentUser());
     }
-  }, [dispatch, token]);
+  }, [dispatch, token, isInitialized]);
 
   return (
     <BrowserRouter>

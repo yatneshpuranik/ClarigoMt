@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import api from '../services/api';
 
-// Async thunk to fetch current user profile from /auth/me once
+// Async thunk to fetch current user profile from /auth/me once on session startup
 export const fetchCurrentUser = createAsyncThunk(
   'auth/fetchCurrentUser',
   async (_, { rejectWithValue }) => {
@@ -36,13 +36,15 @@ const getInitialUser = () => {
 };
 
 const token = sessionStorage.getItem('token');
+const cachedUser = getInitialUser();
 
 const initialState = {
   token: token || null,
-  user: getInitialUser(),
-  role: sessionStorage.getItem('role') || getInitialUser()?.role || null,
+  user: cachedUser,
+  role: sessionStorage.getItem('role') || cachedUser?.role || null,
   isAuthenticated: !!token,
-  loading: !!token,
+  loading: !!token && !cachedUser,
+  isInitialized: false,
   error: null,
 };
 
@@ -57,6 +59,7 @@ const authSlice = createSlice({
       state.role = user?.role || null;
       state.isAuthenticated = true;
       state.loading = false;
+      state.isInitialized = true;
       state.error = null;
 
       sessionStorage.setItem('token', token);
@@ -77,6 +80,7 @@ const authSlice = createSlice({
       state.role = null;
       state.isAuthenticated = false;
       state.loading = false;
+      state.isInitialized = true;
       state.error = null;
 
       sessionStorage.removeItem('token');
@@ -96,6 +100,7 @@ const authSlice = createSlice({
         state.token = action.payload.token;
         state.isAuthenticated = true;
         state.loading = false;
+        state.isInitialized = true;
       })
       .addCase(fetchCurrentUser.rejected, (state, action) => {
         state.user = null;
@@ -103,6 +108,7 @@ const authSlice = createSlice({
         state.token = null;
         state.isAuthenticated = false;
         state.loading = false;
+        state.isInitialized = true;
         state.error = action.payload;
       });
   },
