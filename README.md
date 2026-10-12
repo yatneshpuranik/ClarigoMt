@@ -64,7 +64,7 @@ To register as an Administrator:
 
 ### Standard User Account
 - **Email:** `user@example.com`
-- **Password:** `userpassword123` (or `123456`)
+- **Password:**  `123456`
 
 ### Administrator Account
 - **Email:** `admin@example.com`
